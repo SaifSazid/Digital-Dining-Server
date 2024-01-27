@@ -3,8 +3,10 @@ const req = require('express/lib/request');
 const app = express();
 const cors = require('cors');
 require('dotenv').config()
+const stripe = require('stripe')(process.env.PAYMENT_SECRET_KEY)
 const port = process.env.PORT || 5000;
 const jwt = require('jsonwebtoken');
+
 
 
 // middleware
@@ -13,7 +15,7 @@ app.use(express.json());
 
 
 const verifyToken = (req, res, next) => {
-    console.log('inside verify token', req.headers.authorization);
+    // console.log('inside verify token', req.headers.authorization);
     if (!req.headers.authorization) {
         return res.status(401).send({ message: 'unauthorized access' });
     }
@@ -49,8 +51,9 @@ async function run() {
         const menuCollection = client.db("dinningDb").collection("menu");
         const reviewCollection = client.db("dinningDb").collection("reviews");
         const CartCollection = client.db("dinningDb").collection("Carts");
+        const paymentCollection = client.db("dinningDb").collection("payments");
 
-        app.post('/jwt', async (req, res) => {
+        app.post('/jwt', (req, res) => {
             const user = req.body;
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
             res.send({ token });
@@ -64,7 +67,7 @@ async function run() {
             const email = req.decoded.email;
             const query = { email: email }
             const user = await usersCollection.findOne(query);
-            if (user?.role === 'admin') {
+            if (user?.role !== 'admin') {
                 return res.status(403).send({ error: true, message: 'forbiddeb message' })
             }
             next();
@@ -72,12 +75,12 @@ async function run() {
 
 
         // users related apis
-        app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
+        app.get('/users', async (req, res) => {
             const result = await usersCollection.find().toArray();
             res.send(result);
         })
 
-        app.post('/users', async (req, res) => {
+        app.post('/users', verifyToken, verifyAdmin, async (req, res) => {
             const user = req.body;
             console.log(user);
             const query = { email: user.email };
@@ -127,6 +130,19 @@ async function run() {
             res.send(result);
         })
 
+        app.post('/menu', async (req, res) => {
+            const newItem = req.body;
+            const result = await menuCollection.insertOne(newItem)
+            res.send(result);
+        })
+
+        app.delete('/menu/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await menuCollection.deleteOne(query);
+            res.send(result);
+        })
+
         // review related apis
         app.get('/reviews', async (req, res) => {
             const result = await reviewCollection.find().toArray();
@@ -135,11 +151,17 @@ async function run() {
 
 
         // cart collection apis
-        app.get('/carts',verifyToken, async (req, res) => {
+        app.get('/carts', async (req, res) => {
             const email = req.query.email;
             if (!email) {
                 res.send([]);
             }
+
+            // const decodedEmail = req.decoded.email;
+            // if(email !== decodedEmail){
+            //     return res.status(401).send({ error: true, message: 'unauthorized access' })
+            // }
+
             const query = { email: email };
             const result = await CartCollection.find(query).toArray();
             res.send(result);
@@ -156,6 +178,47 @@ async function run() {
             const query = { _id: new ObjectId(id) };
             const result = await CartCollection.deleteOne(query);
             res.send(result);
+        })
+
+        // create payment intent
+        app.post("/create-payment-intent", async (req, res) => {
+            const { price } = req.body;
+            const amount = price * 100;
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: "usd",
+                payment_method_types: ["card"],
+            });
+            res.send({
+                clientSecret: paymentIntent.client_secret,
+            });
+        });
+
+        //   payment related
+        app.post('/payments', async (req, res) => {
+            const payment = req.body;
+            const insertResult = await paymentCollection.insertOne(payment)
+
+
+            // const query = {_id:{ $in: payment.cartItems.map(id => new ObjectId(id))} }
+            // const deleteResult = await CartCollection.deleteMany(query)
+            res.send(insertResult);
+        })
+
+        app.get('/admin-stats', async (req, res) => {
+            const users = await usersCollection.estimatedDocumentCount();
+            const products = await menuCollection.estimatedDocumentCount();
+            const orders = await paymentCollection.estimatedDocumentCount();
+
+            const payments = await paymentCollection.find().toArray();
+            const revenue = payments.reduce((sum, payment) => sum + payment.price, 0)
+
+            res.send({
+                users,
+                products,
+                orders,
+                revenue
+            })
         })
 
 
