@@ -10,7 +10,13 @@ const jwt = require('jsonwebtoken');
 
 
 // middleware
-app.use(cors());
+app.use(cors(
+    {
+        origin: [],
+        methods: ['POST', 'GET', 'DELETE', 'PATHC'],
+        credentials: true
+    }
+));
 app.use(express.json());
 
 
