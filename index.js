@@ -12,8 +12,8 @@ const jwt = require('jsonwebtoken');
 // middleware
 app.use(cors(
     {
-        origin: [],
-        methods: ['POST', 'GET', 'DELETE', 'PATHC'],
+        origin: ['https://digital-dining-client.vercel.app'],
+        methods: ['POST', 'GET', 'DELETE', 'PATCH'],
         credentials: true
     }
 ));
